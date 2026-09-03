@@ -1,0 +1,3 @@
+"""
+TrendRadar Dashboard Package
+"""

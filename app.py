@@ -18,6 +18,8 @@ from dashboard.product_read_model import PublicProductReadModelLoader
 SEP02_FREE_FACTUAL_V1_ARTIFACT_ID = "free-factual-v1-cad66614120dea9ddf92226975e1858632183ad740e1e6dee9f8fbf4a7baabb2"
 SEP02_SEMANTIC_TREND_PIPELINE_ARTIFACT_ID = "semantic-trend-pipeline-9973028686f8bc577f18595378efa198a69a1f783884e8678ef4e3d22208296a"
 SEP02_DEPLOYMENT_PRODUCT_PROJECTION_ARTIFACT_ID = "trend-radar-deployment-run-4671f23d51cd5db4f2c30e8236ade0d1e0600c2cb0b7a219cfba8f3cb99f8be0"
+PRIVACY_POLICY_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/privacy.html"
+TERMS_OF_SERVICE_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/terms.html"
 
 st.set_page_config(page_title="Trend Radar", page_icon=":material/trending_up:", layout="wide")
 
@@ -118,7 +120,25 @@ def _lookup(snapshot: ConsumerTrendRadarV1, route: tuple[str, ...]) -> None:
         return
     if route == ("about",):
         st.title("About Trend Radar")
-        st.write("Trend Radar highlights topics supported by current public evidence.")
+        st.write(
+            "Trend Radar helps people explore emerging topics, content niches, "
+            "high-performing public videos, and smaller creators gaining unusual traction."
+        )
+        st.write(
+            "It uses current public YouTube metadata. Bounded discovery continues to find "
+            "new creators, while previously discovered creators may be checked directly "
+            "for new public uploads."
+        )
+        st.write(
+            "Trend Radar does not access private YouTube account data or require private-account "
+            "authorization, does not download video or audio, and is independent and not affiliated "
+            "with, sponsored by, or endorsed by YouTube or Google."
+        )
+        policy_columns = st.columns(2)
+        with policy_columns[0]:
+            st.link_button("Privacy Policy", PRIVACY_POLICY_URL)
+        with policy_columns[1]:
+            st.link_button("Terms of Service", TERMS_OF_SERVICE_URL)
         st.caption(f"Last updated: {display_timestamp(snapshot.last_updated)}")
         return
     category = snapshot.category(route[1]) if len(route) > 1 else None
@@ -158,6 +178,12 @@ with st.sidebar:
         _go("home")
     if st.button("About Trend Radar"):
         _go("about")
+    st.divider()
+    st.caption("Policies")
+    st.markdown(
+        f"[Privacy Policy]({PRIVACY_POLICY_URL}) · "
+        f"[Terms of Service]({TERMS_OF_SERVICE_URL})"
+    )
 
 current_route = _route()
 _breadcrumb(current_route)

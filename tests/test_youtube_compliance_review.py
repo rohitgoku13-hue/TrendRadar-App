@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 from streamlit.testing.v1 import AppTest
+
+from dashboard.compliance_review import build_compliance_review_snapshot
+from dashboard.product_read_model import PublicProductReadModelLoader
 
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 PRIVACY_POLICY_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/privacy.html"
 TERMS_OF_SERVICE_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/terms.html"
+FACTUAL_ID = "free-factual-v1-cad66614120dea9ddf92226975e1858632183ad740e1e6dee9f8fbf4a7baabb2"
+SEMANTIC_ID = "semantic-trend-pipeline-9973028686f8bc577f18595378efa198a69a1f783884e8678ef4e3d22208296a"
+PROJECTION_ID = "trend-radar-deployment-run-4671f23d51cd5db4f2c30e8236ade0d1e0600c2cb0b7a219cfba8f3cb99f8be0"
 
 
 def _body(app: AppTest) -> str:
@@ -20,6 +27,31 @@ def _body(app: AppTest) -> str:
 
 def _links(app: AppTest) -> dict[str, str]:
     return {item.proto.label: item.proto.url for item in app.get("link_button")}
+
+
+def test_reviewer_projection_supports_a_hot_deploy_worker_with_prior_read_model_shape() -> None:
+    source = PublicProductReadModelLoader().load(
+        factual_artifact_id=FACTUAL_ID,
+        semantic_artifact_id=SEMANTIC_ID,
+        projection_artifact_id=PROJECTION_ID,
+    )
+    prior_shape = SimpleNamespace(
+        explicit_gap_count=source.explicit_gap_count,
+        creator_signals=source.creator_signals,
+        semantic_state=source.semantic_state,
+        cross_creator_signals=source.cross_creator_signals,
+        validated_trends=source.validated_trends,
+    )
+
+    snapshot = build_compliance_review_snapshot(prior_shape)
+
+    assert (
+        snapshot.search_appearances,
+        snapshot.unique_videos,
+        snapshot.qualifying_videos,
+        snapshot.qualified_creators,
+        snapshot.sufficient_creator_histories,
+    ) == (1_180, 1_165, 21, 13, 2)
 
 
 def test_reviewer_page_loads_directly_from_a_reviewer_friendly_query() -> None:

@@ -95,6 +95,12 @@ class PublicProductReadModel:
     last_updated: str
     partition_counts: tuple[tuple[str, int], ...]
     explicit_gap_count: int
+    discovery_completeness: str
+    search_appearances: int
+    unique_video_count: int
+    qualifying_video_count: int
+    qualified_creator_count: int
+    creator_history_sufficient_count: int
     creator_signals: tuple[PublicCreatorSignal, ...]
     market_counts: tuple[tuple[str, int], ...]
     semantic_state: str
@@ -145,4 +151,32 @@ class PublicProductReadModelLoader:
         last_updated = semantic.get("generated_at")
         if not isinstance(last_updated, str) or not last_updated:
             raise ValueError("Selected public product artifact has no update timestamp.")
-        return PublicProductReadModel(last_updated, parsed_partition_counts, int(projection["explicit_gap_count"]), creators, parsed_market_counts, str(semantic["overall_state"]), signals_model, trends)
+        factual_counts = {
+            "search_appearances": factual.get("search_appearances"),
+            "unique_video_count": factual.get("unique_video_count"),
+            "qualifying_video_count": factual.get("qualifying_video_count"),
+            "qualified_creator_count": factual.get("qualified_creator_count"),
+            "creator_history_sufficient_count": factual.get("creator_history_sufficient_count"),
+        }
+        if (
+            factual.get("discovery_completeness") != "COMPLETE"
+            or any(not isinstance(value, int) or value < 0 for value in factual_counts.values())
+            or factual_counts["qualified_creator_count"] != len(creators)
+        ):
+            raise ValueError("Selected public product artifact has invalid factual summary fields.")
+        return PublicProductReadModel(
+            last_updated=last_updated,
+            partition_counts=parsed_partition_counts,
+            explicit_gap_count=int(projection["explicit_gap_count"]),
+            discovery_completeness=str(factual["discovery_completeness"]),
+            search_appearances=int(factual_counts["search_appearances"]),
+            unique_video_count=int(factual_counts["unique_video_count"]),
+            qualifying_video_count=int(factual_counts["qualifying_video_count"]),
+            qualified_creator_count=int(factual_counts["qualified_creator_count"]),
+            creator_history_sufficient_count=int(factual_counts["creator_history_sufficient_count"]),
+            creator_signals=creators,
+            market_counts=parsed_market_counts,
+            semantic_state=str(semantic["overall_state"]),
+            cross_creator_signals=signals_model,
+            validated_trends=trends,
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from dashboard.compliance_review import build_compliance_review_snapshot
 from dashboard.consumer_product_read_model import (
     ConsumerCategory,
     ConsumerSubtrend,
@@ -20,16 +21,26 @@ SEP02_SEMANTIC_TREND_PIPELINE_ARTIFACT_ID = "semantic-trend-pipeline-9973028686f
 SEP02_DEPLOYMENT_PRODUCT_PROJECTION_ARTIFACT_ID = "trend-radar-deployment-run-4671f23d51cd5db4f2c30e8236ade0d1e0600c2cb0b7a219cfba8f3cb99f8be0"
 PRIVACY_POLICY_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/privacy.html"
 TERMS_OF_SERVICE_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/terms.html"
+COMPLIANCE_REVIEW_QUERY_VALUE = "youtube-api-review"
 
 st.set_page_config(page_title="Trend Radar", page_icon=":material/trending_up:", layout="wide")
 
 
 def _route() -> tuple[str, ...]:
-    return tuple(st.session_state.get("consumer_route", ("home",)))
+    route = st.session_state.get("consumer_route")
+    if route is not None:
+        return tuple(route)
+    if st.query_params.get("view") == COMPLIANCE_REVIEW_QUERY_VALUE:
+        return ("youtube-api-review",)
+    return ("home",)
 
 
 def _go(*route: str) -> None:
     st.session_state.consumer_route = route
+    if route == ("youtube-api-review",):
+        st.query_params["view"] = COMPLIANCE_REVIEW_QUERY_VALUE
+    elif "view" in st.query_params:
+        del st.query_params["view"]
     st.rerun()
 
 
@@ -114,6 +125,120 @@ def _render_subtrend(subtrend: ConsumerSubtrend) -> None:
                     st.caption("Creator tracking will be available when you choose how to save your list.")
 
 
+def _render_compliance_review(source) -> None:
+    sample = build_compliance_review_snapshot(source)
+
+    st.title("YouTube API compliance review - sample analysis")
+    st.info("Representative completed analysis using real retained YouTube API-derived evidence.")
+    st.warning(
+        "This historical review sample is provided for API compliance review. "
+        "It is not the current live Trend Radar feed."
+    )
+    st.caption(f"Sample: {sample.sample_label}. Creator identities are anonymized for reviewer presentation.")
+
+    st.header("A. Data retrieved")
+    st.write(
+        "Trend Radar uses public YouTube Data API metadata for bounded discovery, "
+        "factual verification, creator qualification, and direct monitoring of known creators."
+    )
+    st.table(
+        [
+            {
+                "API method": item.method,
+                "Purpose": item.purpose,
+                "Public fields used": item.fields_used,
+            }
+            for item in sample.api_methods
+        ]
+    )
+    st.caption("No raw API response payloads, credentials, private account data, channel IDs, or video IDs are shown.")
+
+    st.subheader("Representative retained records")
+    st.table(
+        [
+            {
+                "Creator": item.creator,
+                "Public video title": item.title,
+                "Published": item.published,
+                "Views": f"{item.views:,}",
+                "Subscriber observation": f"{item.subscribers:,}",
+                "Category": item.category,
+                "Video result": item.video_qualification,
+                "Bounded history": item.history_result,
+            }
+            for item in sample.videos
+        ]
+    )
+    st.caption("Views and subscriber counts are point-in-time retained observations, not live values.")
+
+    st.header("B. Factual analytics")
+    metrics = st.columns(4)
+    metrics[0].metric("Search appearances", f"{sample.search_appearances:,}")
+    metrics[1].metric("Unique videos", f"{sample.unique_videos:,}")
+    metrics[2].metric("Qualifying videos", sample.qualifying_videos)
+    metrics[3].metric("Qualified creators", sample.qualified_creators)
+
+    st.markdown(
+        "Trend Radar applies factual eligibility and quality checks to public video and channel "
+        "metadata retrieved through the YouTube Data API. Only evidence satisfying those checks "
+        "proceeds to creator-history analysis."
+    )
+    st.write(
+        "Creator history is evaluated using a bounded set of recent public uploads. Where "
+        "sufficient repeated-performance evidence exists, that evidence may proceed to "
+        "creator-pattern analysis."
+    )
+    st.metric("Creator histories with sufficient evidence", sample.sufficient_creator_histories)
+
+    st.header("C. Creator analytics")
+    creator_metrics = st.columns(2)
+    creator_metrics[0].metric("Semantic creators", sample.semantic_creators)
+    creator_metrics[1].metric("Valid Creator Patterns", sample.valid_creator_patterns)
+    st.write(
+        "Repeated creator evidence is summarized into reviewable Creator Patterns. "
+        "A pattern describes a recurring content mechanism; it does not by itself establish a cross-creator Trend."
+    )
+
+    st.header("D. Cross-creator analytics")
+    st.metric("Cross-Creator Signals", sample.cross_creator_signals)
+    st.write(
+        "Equivalent pattern evidence across independent creators can form a Cross-Creator Signal. "
+        "The completed sample produced one such signal, which was then evaluated under the final Trend rules."
+    )
+
+    st.header("E. End result")
+    st.metric("Validated Trends", sample.validated_trends)
+    st.success("Completed analysis: SUCCESS_NO_VALIDATED_TRENDS")
+    st.write(
+        "Cross-creator evidence proceeds through deterministic validation. Trend Radar publishes "
+        "a Trend only when the available independent evidence satisfies its validation requirements. "
+        "The completed analysis produced zero validated Trends. This is a valid end result. "
+        "Trend Radar does not manufacture a Trend when evidence is insufficient."
+    )
+    st.markdown("**Consumer hierarchy:** Category → dynamically discovered Topic → Trend / Content Niche → Videos → Creators")
+    st.caption("No sample Topic or Trend is shown because this completed execution produced no validated Trend.")
+
+    st.header("F. Known-creator monitoring")
+    monitoring_columns = st.columns(2)
+    with monitoring_columns[0].container(border=True):
+        st.subheader("Unknown or new creator")
+        st.markdown("**search.list** → candidate video → **videos.list** → **channels.list** → factual qualification")
+    with monitoring_columns[1].container(border=True):
+        st.subheader("Known qualifying creator")
+        st.markdown("**playlistItems.list** → new uploads → **videos.list** → **channels.list** only when metadata refresh is due")
+    st.info(
+        "Known qualifying creators are monitored directly so Trend Radar does not repeatedly use "
+        "Search simply to rediscover the same creator."
+    )
+
+    st.header("Policies")
+    policy_columns = st.columns(2)
+    with policy_columns[0]:
+        st.link_button("Privacy Policy", PRIVACY_POLICY_URL)
+    with policy_columns[1]:
+        st.link_button("Terms of Service", TERMS_OF_SERVICE_URL)
+
+
 def _lookup(snapshot: ConsumerTrendRadarV1, route: tuple[str, ...]) -> None:
     if route == ("home",):
         _render_home(snapshot)
@@ -139,6 +264,8 @@ def _lookup(snapshot: ConsumerTrendRadarV1, route: tuple[str, ...]) -> None:
             st.link_button("Privacy Policy", PRIVACY_POLICY_URL)
         with policy_columns[1]:
             st.link_button("Terms of Service", TERMS_OF_SERVICE_URL)
+        if st.button("Open YouTube API compliance sample", icon=":material/fact_check:"):
+            _go("youtube-api-review")
         st.caption(f"Last updated: {display_timestamp(snapshot.last_updated)}")
         return
     category = snapshot.category(route[1]) if len(route) > 1 else None
@@ -178,6 +305,8 @@ with st.sidebar:
         _go("home")
     if st.button("About Trend Radar"):
         _go("about")
+    if st.button("YouTube API review sample", icon=":material/fact_check:"):
+        _go("youtube-api-review")
     st.divider()
     st.caption("Policies")
     st.markdown(
@@ -187,4 +316,7 @@ with st.sidebar:
 
 current_route = _route()
 _breadcrumb(current_route)
-_lookup(consumer_snapshot, current_route)
+if current_route == ("youtube-api-review",):
+    _render_compliance_review(source)
+else:
+    _lookup(consumer_snapshot, current_route)

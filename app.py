@@ -222,10 +222,10 @@ def _render_compliance_review(source) -> None:
     monitoring_columns = st.columns(2)
     with monitoring_columns[0].container(border=True):
         st.subheader("Unknown or new creator")
-        st.markdown("**search.list** → candidate video → **videos.list** → **channels.list** → factual qualification")
+        st.markdown("**Bounded Search discovery** → **factual verification**")
     with monitoring_columns[1].container(border=True):
         st.subheader("Known qualifying creator")
-        st.markdown("**playlistItems.list** → new uploads → **videos.list** → **channels.list** only when metadata refresh is due")
+        st.markdown("**Recent public upload monitoring** → **video verification** → **channel metadata refresh when required**")
     st.info(
         "Known qualifying creators are monitored directly so Trend Radar does not repeatedly use "
         "Search simply to rediscover the same creator."

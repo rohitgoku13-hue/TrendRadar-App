@@ -136,6 +136,17 @@ def test_reviewer_page_shows_qualification_monitoring_and_policy_links() -> None
     }
 
 
+def test_review_narrative_does_not_publish_numeric_decision_rules() -> None:
+    app = AppTest.from_file(str(APP_PATH), default_timeout=20)
+    app.query_params["view"] = "youtube-api-review"
+    app.run()
+
+    assert not app.exception
+    # Aggregate metrics and retained record observations are separate elements.
+    narrative = "\n".join(item.value for item in app.main.markdown)
+    assert re.search(r"\d|[%≥≤<>]", narrative) is None
+
+
 def test_normal_home_truth_remains_unchanged_and_contains_no_api_review_copy() -> None:
     app = AppTest.from_file(str(APP_PATH)).run(timeout=20)
 

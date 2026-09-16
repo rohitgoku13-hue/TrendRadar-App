@@ -19,7 +19,8 @@ def test_public_app_exposes_policy_links_without_changing_home_content() -> None
 
     assert not app.exception
     assert app.title[0].value == "Trend Radar"
-    assert "No verified topics are available yet" in app.info[0].value
+    assert app.header[0].value == "Explore categories"
+    assert len([button for button in app.button if button.label == "Explore"]) == 9
     sidebar_markdown = "\n".join(item.value for item in app.sidebar.markdown)
     assert f"[Privacy Policy]({PRIVACY_POLICY_URL})" in sidebar_markdown
     assert f"[Terms of Service]({TERMS_OF_SERVICE_URL})" in sidebar_markdown

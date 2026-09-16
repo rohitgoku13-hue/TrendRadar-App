@@ -75,7 +75,10 @@ def _render_category(category: ConsumerCategory) -> None:
     for topic in category.topics:
         with st.container(border=True):
             st.subheader(topic.topic_label)
-            st.write(f"{len(topic.subtrends)} discovered trend{'s' if len(topic.subtrends) != 1 else ''}")
+            st.write(
+                f"{len(topic.subtrends)} discovered content "
+                f"niche{'s' if len(topic.subtrends) != 1 else ''}"
+            )
             if st.button("View topic", key=f"topic-{category.category_label}-{topic.topic_label}"):
                 _go("topic", category.category_label, topic.topic_label)
 
@@ -83,13 +86,16 @@ def _render_category(category: ConsumerCategory) -> None:
 def _render_topic(topic: ConsumerTopic, category_label: str) -> None:
     st.title(topic.topic_label)
     if not topic.subtrends:
-        st.info("No current trends are available for this topic. Trend Radar is still watching this space.")
+        st.info("No current content niches are available for this topic. Trend Radar is still watching this space.")
         return
     for subtrend in topic.subtrends:
         with st.container(border=True):
             st.subheader(subtrend.display_label)
             st.write(f"{len(subtrend.videos)} videos · {len(subtrend.creators)} creators")
-            if st.button("View trend", key=f"subtrend-{category_label}-{topic.topic_label}-{subtrend.display_label}"):
+            if st.button(
+                "View content niche",
+                key=f"subtrend-{category_label}-{topic.topic_label}-{subtrend.display_label}",
+            ):
                 _go("subtrend", category_label, topic.topic_label, subtrend.display_label)
 
 

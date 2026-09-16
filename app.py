@@ -20,7 +20,7 @@ from dashboard.product_read_model import PublicProductReadModelLoader
 SEP02_FREE_FACTUAL_V1_ARTIFACT_ID = "free-factual-v1-cad66614120dea9ddf92226975e1858632183ad740e1e6dee9f8fbf4a7baabb2"
 SEP02_SEMANTIC_TREND_PIPELINE_ARTIFACT_ID = "semantic-trend-pipeline-9973028686f8bc577f18595378efa198a69a1f783884e8678ef4e3d22208296a"
 SEP02_DEPLOYMENT_PRODUCT_PROJECTION_ARTIFACT_ID = "trend-radar-deployment-run-4671f23d51cd5db4f2c30e8236ade0d1e0600c2cb0b7a219cfba8f3cb99f8be0"
-CURRENT_CONSUMER_SNAPSHOT_ID = "consumer-trend-radar-candidate-3453e57a12ac233962f3451a4f8cea5c46815c2054711912de67411858944ced"
+CURRENT_CONSUMER_SNAPSHOT_ID = "consumer-trend-radar-candidate-c1d2e98c30eff9f68c883693b88c69ef3ac6eb08818ec5b029b6bf2eefd90275"
 PRIVACY_POLICY_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/privacy.html"
 TERMS_OF_SERVICE_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/terms.html"
 COMPLIANCE_REVIEW_QUERY_VALUE = "youtube-api-review"
@@ -75,6 +75,8 @@ def _render_home(snapshot: ConsumerTrendRadarV1) -> None:
                 st.caption(f"{category_label.replace('_', ' ').title()} · {trend.market_status}")
                 if st.button("View validated trend", key=f"validated-{trend.provenance_digest}"):
                     _go("trend", category_label, topic_label, trend.trend_name)
+    else:
+        st.info("No validated content trends are currently available.")
     st.header("Explore categories")
     for category in snapshot.categories:
         with st.container(border=True):

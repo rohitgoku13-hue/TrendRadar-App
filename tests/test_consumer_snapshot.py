@@ -13,7 +13,7 @@ from dashboard.consumer_product_read_model import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SNAPSHOT_ID = "consumer-trend-radar-candidate-3453e57a12ac233962f3451a4f8cea5c46815c2054711912de67411858944ced"
+SNAPSHOT_ID = "consumer-trend-radar-candidate-c1d2e98c30eff9f68c883693b88c69ef3ac6eb08818ec5b029b6bf2eefd90275"
 SNAPSHOT_PATH = ROOT / "storage" / "deployment" / "consumer_snapshots" / f"{SNAPSHOT_ID}.json"
 
 
@@ -64,10 +64,7 @@ def test_current_snapshot_is_complete_and_consumer_readable() -> None:
     # the creator once within its consumer topic instead of duplicating cards.
     assert len(_creators(snapshot)) == 144
     assert all(creator.display_name for creator in _creators(snapshot))
-    assert tuple(trend.trend_name for trend in _validated_trends(snapshot)) == (
-        "Episodic Series Titling", "Music Content Metadata Pattern",
-    )
-    assert all(len(trend.creators) == 3 for trend in _validated_trends(snapshot))
+    assert _validated_trends(snapshot) == ()
 
 
 def test_expired_creator_identities_are_anonymized_at_read_time() -> None:

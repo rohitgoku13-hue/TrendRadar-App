@@ -19,8 +19,11 @@ def test_public_app_exposes_policy_links_with_current_home_content() -> None:
 
     assert not app.exception
     assert app.title[0].value == "Trend Radar"
-    assert [item.value for item in app.header[:2]] == ["Validated trends", "Explore categories"]
-    assert len([button for button in app.button if button.label == "View validated trend"]) == 2
+    assert [item.value for item in app.header[:1]] == ["Explore categories"]
+    assert [item.value for item in app.info] == [
+        "No validated content trends are currently available."
+    ]
+    assert len([button for button in app.button if button.label == "View validated trend"]) == 0
     assert len([button for button in app.button if button.label == "Explore"]) == 9
     sidebar_markdown = "\n".join(item.value for item in app.sidebar.markdown)
     assert f"[Privacy Policy]({PRIVACY_POLICY_URL})" in sidebar_markdown

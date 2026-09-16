@@ -14,12 +14,13 @@ def _policy_links(app: AppTest) -> dict[str, str]:
     return {item.proto.label: item.proto.url for item in app.get("link_button")}
 
 
-def test_public_app_exposes_policy_links_without_changing_home_content() -> None:
+def test_public_app_exposes_policy_links_with_current_home_content() -> None:
     app = AppTest.from_file(str(APP_PATH)).run(timeout=20)
 
     assert not app.exception
     assert app.title[0].value == "Trend Radar"
-    assert app.header[0].value == "Explore categories"
+    assert [item.value for item in app.header[:2]] == ["Validated trends", "Explore categories"]
+    assert len([button for button in app.button if button.label == "View validated trend"]) == 2
     assert len([button for button in app.button if button.label == "Explore"]) == 9
     sidebar_markdown = "\n".join(item.value for item in app.sidebar.markdown)
     assert f"[Privacy Policy]({PRIVACY_POLICY_URL})" in sidebar_markdown

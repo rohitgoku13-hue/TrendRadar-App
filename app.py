@@ -11,6 +11,7 @@ from dashboard.consumer_product_read_model import (
     ConsumerTopic,
     ConsumerTrendRadarV1,
     ConsumerTrendRadarV1SnapshotLoader,
+    ConsumerValidatedTrend,
     display_timestamp,
 )
 from dashboard.product_read_model import PublicProductReadModelLoader
@@ -19,7 +20,7 @@ from dashboard.product_read_model import PublicProductReadModelLoader
 SEP02_FREE_FACTUAL_V1_ARTIFACT_ID = "free-factual-v1-cad66614120dea9ddf92226975e1858632183ad740e1e6dee9f8fbf4a7baabb2"
 SEP02_SEMANTIC_TREND_PIPELINE_ARTIFACT_ID = "semantic-trend-pipeline-9973028686f8bc577f18595378efa198a69a1f783884e8678ef4e3d22208296a"
 SEP02_DEPLOYMENT_PRODUCT_PROJECTION_ARTIFACT_ID = "trend-radar-deployment-run-4671f23d51cd5db4f2c30e8236ade0d1e0600c2cb0b7a219cfba8f3cb99f8be0"
-CURRENT_CONSUMER_SNAPSHOT_ID = "consumer-trend-radar-candidate-4ee3b29e58ad729e1a8cd0b82a10a6d30a1d25da6a861fdc85d8d1dad808c57a"
+CURRENT_CONSUMER_SNAPSHOT_ID = "consumer-trend-radar-candidate-3453e57a12ac233962f3451a4f8cea5c46815c2054711912de67411858944ced"
 PRIVACY_POLICY_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/privacy.html"
 TERMS_OF_SERVICE_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/terms.html"
 COMPLIANCE_REVIEW_QUERY_VALUE = "youtube-api-review"
@@ -58,6 +59,22 @@ def _render_home(snapshot: ConsumerTrendRadarV1) -> None:
     if not snapshot.categories:
         st.info("No verified topics are available yet. Trend Radar is still watching this space.")
         return
+    validated = tuple(
+        (category.category_label, topic.topic_label, trend)
+        for category in snapshot.categories
+        for topic in category.topics
+        for trend in topic.validated_trends
+    )
+    if validated:
+        st.header("Validated trends")
+        st.caption("Cross-creator trends supported by independent creator evidence.")
+        for category_label, topic_label, trend in sorted(validated, key=lambda item: item[2].rank):
+            with st.container(border=True):
+                st.subheader(trend.trend_name)
+                st.write(trend.description)
+                st.caption(f"{category_label.replace('_', ' ').title()} · {trend.market_status}")
+                if st.button("View validated trend", key=f"validated-{trend.provenance_digest}"):
+                    _go("trend", category_label, topic_label, trend.trend_name)
     st.header("Explore categories")
     for category in snapshot.categories:
         with st.container(border=True):
@@ -85,6 +102,15 @@ def _render_category(category: ConsumerCategory) -> None:
 
 def _render_topic(topic: ConsumerTopic, category_label: str) -> None:
     st.title(topic.topic_label)
+    if topic.validated_trends:
+        st.header("Validated trends")
+        for trend in topic.validated_trends:
+            with st.container(border=True):
+                st.subheader(trend.trend_name)
+                st.write(trend.description)
+                st.caption(trend.evidence_summary)
+                if st.button("View validated trend", key=f"topic-validated-{trend.provenance_digest}"):
+                    _go("trend", category_label, topic.topic_label, trend.trend_name)
     if not topic.subtrends:
         st.info("No current content niches are available for this topic. Trend Radar is still watching this space.")
         return
@@ -130,6 +156,36 @@ def _render_subtrend(subtrend: ConsumerSubtrend) -> None:
                 if creator.tracking_key:
                     st.button("Track creator", key=f"track-{creator.tracking_key}", disabled=True)
                     st.caption("Creator tracking will be available when you choose how to save your list.")
+
+
+def _render_validated_trend(trend: ConsumerValidatedTrend) -> None:
+    st.title(trend.trend_name)
+    st.write(trend.description)
+    st.caption(trend.market_status)
+    st.info(trend.evidence_summary)
+    st.header("Supporting videos")
+    for video in trend.videos:
+        with st.container(border=True):
+            if video.thumbnail_locator:
+                st.image(video.thumbnail_locator)
+            st.subheader(video.display_title)
+            details = []
+            if video.views is not None:
+                details.append(f"{video.views:,} views")
+            if video.published_at:
+                details.append(f"Published {video.published_at}")
+            if details:
+                st.caption(" · ".join(details))
+            if video.public_video_locator:
+                st.link_button("Watch video", video.public_video_locator)
+    st.header("Independent creators")
+    for creator in trend.creators:
+        with st.container(border=True):
+            st.subheader(creator.safe_display_name)
+            if creator.public_handle:
+                st.caption(creator.public_handle)
+            if creator.public_creator_locator:
+                st.link_button("View creator", creator.public_creator_locator)
 
 
 def _render_compliance_review(source) -> None:
@@ -288,6 +344,13 @@ def _lookup(snapshot: ConsumerTrendRadarV1, route: tuple[str, ...]) -> None:
         return
     if route[0] == "topic":
         _render_topic(topic, category.category_label)
+        return
+    if route[0] == "trend":
+        trend = snapshot.validated_trend(category.category_label, topic.topic_label, route[3]) if len(route) > 3 else None
+        if trend is None:
+            _go("topic", category.category_label, topic.topic_label)
+            return
+        _render_validated_trend(trend)
         return
     subtrend = snapshot.subtrend(category.category_label, topic.topic_label, route[3]) if len(route) > 3 else None
     if subtrend is None:

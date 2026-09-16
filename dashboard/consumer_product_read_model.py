@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -13,7 +13,9 @@ from dashboard.product_read_model import PublicProductReadModel
 
 
 IDENTITY_REFRESH_COPY = "Creator details will be available after the next refresh."
-CONSUMER_SNAPSHOT_SCHEMA_VERSION = "consumer-trend-radar-v1"
+CONSUMER_SNAPSHOT_SCHEMA_VERSION = "consumer-trend-radar-v2"
+_LEGACY_SNAPSHOT_SCHEMA_VERSION = "consumer-trend-radar-v1"
+RETENTION_WINDOW_DAYS = 30
 _SNAPSHOT_PREFIX = "consumer-trend-radar-candidate-"
 _ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_MARKERS = (
@@ -61,9 +63,30 @@ class ConsumerSubtrend:
 
 
 @dataclass(frozen=True, slots=True)
+class ConsumerValidatedTrend:
+    """A public Trend that is hard-bound to one backend-validated record."""
+
+    trend_name: str
+    description: str
+    rank: int
+    market_status: str
+    evidence_summary: str
+    videos: tuple[ConsumerVideo, ...]
+    creators: tuple[ConsumerCreator, ...]
+    provenance_digest: str
+
+    def __post_init__(self) -> None:
+        if (not self.trend_name or not self.description or self.rank < 1
+                or len(self.provenance_digest) != 64
+                or any(character not in "0123456789abcdef" for character in self.provenance_digest)):
+            raise ValueError("Consumer validated Trend is malformed.")
+
+
+@dataclass(frozen=True, slots=True)
 class ConsumerTopic:
     topic_label: str
     subtrends: tuple[ConsumerSubtrend, ...]
+    validated_trends: tuple[ConsumerValidatedTrend, ...] = ()
     summary: str | None = None
 
 
@@ -120,6 +143,13 @@ class ConsumerTrendRadarV1:
             return None
         return next((item for item in topic.subtrends if item.display_label == subtrend_label), None)
 
+    def validated_trend(self, category_label: str, topic_label: str,
+                        trend_name: str) -> ConsumerValidatedTrend | None:
+        topic = self.topic(category_label, topic_label)
+        if topic is None:
+            return None
+        return next((item for item in topic.validated_trends if item.trend_name == trend_name), None)
+
 
 class ConsumerTrendRadarV1Projector:
     """Build the historical Sep 02 consumer projection without inventing records."""
@@ -149,14 +179,16 @@ class ConsumerTrendRadarV1SnapshotLoader:
         digest = snapshot_id.removeprefix(_SNAPSHOT_PREFIX)
         if len(digest) != 64 or sha256(raw).hexdigest() != digest:
             raise ValueError("Consumer snapshot immutable identity mismatch.")
-        if set(document) != {
-            "schema_version", "generated_at", "window_start", "window_end", "coverage_state", "categories",
-        }:
+        schema_version = document.get("schema_version")
+        expected = {"schema_version", "generated_at", "window_start", "window_end", "coverage_state", "categories"}
+        if schema_version == CONSUMER_SNAPSHOT_SCHEMA_VERSION:
+            expected.add("api_data_expires_at")
+        if set(document) != expected:
             raise ValueError("Consumer snapshot schema is malformed.")
         serialized = raw.decode("utf-8").casefold()
         if any(marker in serialized for marker in _FORBIDDEN_MARKERS):
             raise ValueError("Consumer snapshot contains prohibited private data.")
-        if document.get("schema_version") != CONSUMER_SNAPSHOT_SCHEMA_VERSION:
+        if schema_version not in {CONSUMER_SNAPSHOT_SCHEMA_VERSION, _LEGACY_SNAPSHOT_SCHEMA_VERSION}:
             raise ValueError("Consumer snapshot schema version is unsupported.")
         if document.get("coverage_state") != "DISCOVERY_COVERAGE_COMPLETE":
             raise ValueError("Only complete consumer snapshots may be published.")
@@ -166,10 +198,15 @@ class ConsumerTrendRadarV1SnapshotLoader:
         categories = document.get("categories")
         if not isinstance(categories, list):
             raise ValueError("Consumer snapshot categories are malformed.")
+        if schema_version == CONSUMER_SNAPSHOT_SCHEMA_VERSION:
+            api_expires_at = _timestamp(_required_text(document, "api_data_expires_at"))
+        else:
+            api_expires_at = _timestamp(_required_text(document, "window_end")) + timedelta(days=RETENTION_WINDOW_DAYS)
+        api_data_current = now.astimezone(UTC) < api_expires_at
         return ConsumerTrendRadarV1(
             _required_text(document, "generated_at"),
             "COMPLETE",
-            tuple(_parse_category(item, now.astimezone(UTC)) for item in categories),
+            tuple(_parse_category(item, now.astimezone(UTC), api_data_current) for item in categories),
         )
 
 
@@ -201,33 +238,37 @@ def _records(value: Mapping[str, Any], key: str) -> list[object]:
     return records
 
 
-def _parse_category(value: object, now: datetime) -> ConsumerCategory:
+def _parse_category(value: object, now: datetime, api_data_current: bool) -> ConsumerCategory:
     record = _mapping(value)
     return ConsumerCategory(
         _required_text(record, "category_label"),
-        tuple(_parse_topic(item, now) for item in _records(record, "topics")),
+        tuple(_parse_topic(item, now, api_data_current) for item in _records(record, "topics")),
     )
 
 
-def _parse_topic(value: object, now: datetime) -> ConsumerTopic:
+def _parse_topic(value: object, now: datetime, api_data_current: bool) -> ConsumerTopic:
     record = _mapping(value)
     return ConsumerTopic(
         _required_text(record, "topic_label"),
-        tuple(_parse_subtrend(item, now) for item in _records(record, "subtrends")),
+        tuple(_parse_subtrend(item, now, api_data_current) for item in _records(record, "subtrends")),
+        tuple(_parse_validated_trend(item, now, api_data_current)
+              for item in record.get("validated_trends", [])),
     )
 
 
-def _parse_subtrend(value: object, now: datetime) -> ConsumerSubtrend:
+def _parse_subtrend(value: object, now: datetime, api_data_current: bool) -> ConsumerSubtrend:
     record = _mapping(value)
     return ConsumerSubtrend(
         _required_text(record, "subtrend_label"),
-        tuple(_parse_video(item) for item in _records(record, "videos")),
+        tuple(_parse_video(item, api_data_current) for item in _records(record, "videos")),
         tuple(_parse_creator(item, now) for item in _records(record, "creators")),
     )
 
 
-def _parse_video(value: object) -> ConsumerVideo:
+def _parse_video(value: object, api_data_current: bool) -> ConsumerVideo:
     record = _mapping(value)
+    if not api_data_current:
+        return ConsumerVideo("Video details unavailable pending refresh.")
     views = record.get("public_views")
     if not isinstance(views, int) or views < 0:
         raise ValueError("Consumer video views are malformed.")
@@ -235,6 +276,24 @@ def _parse_video(value: object) -> ConsumerVideo:
         _required_text(record, "display_title"), views,
         _required_text(record, "published_at"), _optional_text(record.get("thumbnail_locator")),
         _required_text(record, "public_video_locator"),
+    )
+
+
+def _parse_validated_trend(value: object, now: datetime,
+                           api_data_current: bool) -> ConsumerValidatedTrend:
+    record = _mapping(value)
+    rank = record.get("rank")
+    if not isinstance(rank, int) or rank < 1:
+        raise ValueError("Consumer validated Trend rank is malformed.")
+    return ConsumerValidatedTrend(
+        _required_text(record, "trend_name"),
+        _required_text(record, "description"),
+        rank,
+        _required_text(record, "market_status"),
+        _required_text(record, "evidence_summary"),
+        tuple(_parse_video(item, api_data_current) for item in _records(record, "supporting_videos")),
+        tuple(_parse_creator(item, now) for item in _records(record, "supporting_creators")),
+        _required_text(record, "provenance_digest"),
     )
 
 
@@ -252,6 +311,13 @@ def _parse_creator(value: object, now: datetime) -> ConsumerCreator:
         _optional_text(record.get("display_name")), _optional_text(record.get("public_handle")),
         _optional_text(record.get("public_creator_locator")), tracking_key,
     )
+
+
+def _timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Consumer snapshot timestamp is malformed.")
+    return parsed.astimezone(UTC)
 
 
 def display_timestamp(value: str) -> str:

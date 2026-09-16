@@ -1,21 +1,26 @@
-"""Consumer-first, provider-independent projection for public Trend Radar pages.
-
-This module accepts already-approved product results. It deliberately does
-not infer a category, topic, video, or creator identity from aggregate
-analytics. A future scanner publishes a complete ``ConsumerTrendRadarV1``
-snapshot atomically; the current Sep02 result projects to an honest empty
-catalog because it contains no consumer-safe taxonomy records.
-"""
+"""Consumer-safe read models and immutable snapshot loading for Trend Radar."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from hashlib import sha256
+import json
+from pathlib import Path
+from typing import Any, Mapping
 
 from dashboard.product_read_model import PublicProductReadModel
 
 
 IDENTITY_REFRESH_COPY = "Creator details will be available after the next refresh."
+CONSUMER_SNAPSHOT_SCHEMA_VERSION = "consumer-trend-radar-v1"
+_SNAPSHOT_PREFIX = "consumer-trend-radar-candidate-"
+_ROOT = Path(__file__).resolve().parents[1]
+_FORBIDDEN_MARKERS = (
+    "api_key", "authorization", "bearer ", "channel_id", "video_id",
+    "gemini", "prompt_version", "methodology", "planner", "saturation",
+    "provider_response", "request_audit", "filesystem", "c:\\", "d:\\", "\\\\",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +32,7 @@ class ConsumerVideo:
     published_at: str | None = None
     thumbnail_locator: str | None = None
     public_video_locator: str | None = None
+    creator_display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +43,8 @@ class ConsumerCreator:
     public_handle: str | None = None
     public_creator_locator: str | None = None
     tracking_key: str | None = None
+    subscriber_count: int | None = None
+    breakout_video_count: int | None = None
 
     @property
     def safe_display_name(self) -> str:
@@ -48,18 +56,22 @@ class ConsumerSubtrend:
     display_label: str
     videos: tuple[ConsumerVideo, ...]
     creators: tuple[ConsumerCreator, ...]
+    summary: str | None = None
+    status_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ConsumerTopic:
     topic_label: str
     subtrends: tuple[ConsumerSubtrend, ...]
+    summary: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ConsumerCategory:
     category_label: str
     topics: tuple[ConsumerTopic, ...]
+    summary: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,12 +114,7 @@ class ConsumerTrendRadarV1:
             return None
         return next((item for item in category.topics if item.topic_label == topic_label), None)
 
-    def subtrend(
-        self,
-        category_label: str,
-        topic_label: str,
-        subtrend_label: str,
-    ) -> ConsumerSubtrend | None:
+    def subtrend(self, category_label: str, topic_label: str, subtrend_label: str) -> ConsumerSubtrend | None:
         topic = self.topic(category_label, topic_label)
         if topic is None:
             return None
@@ -115,19 +122,136 @@ class ConsumerTrendRadarV1:
 
 
 class ConsumerTrendRadarV1Projector:
-    """Build the current consumer snapshot without inventing taxonomy records."""
+    """Build the historical Sep 02 consumer projection without inventing records."""
 
     def project(self, source: PublicProductReadModel) -> ConsumerTrendRadarV1:
-        # The retained Sep02 public result provides an update timestamp and
-        # completion state, but no category/topic/subtrend/video/creator cards.
-        # A relationship summary is not promoted to a consumer Trend without an
-        # already-authoritative consumer taxonomy record.
         coverage_state = "COMPLETE" if source.explicit_gap_count == 0 else "INCOMPLETE"
+        return ConsumerTrendRadarV1(source.last_updated, coverage_state, ())
+
+
+class ConsumerTrendRadarV1SnapshotLoader:
+    """Load one exact immutable consumer candidate with retention-aware identities."""
+
+    def __init__(self, folder: Path | None = None) -> None:
+        self.folder = folder or _ROOT / "storage" / "deployment" / "consumer_snapshots"
+
+    def load(self, *, snapshot_id: str, evaluation_time: datetime | None = None) -> ConsumerTrendRadarV1:
+        if not snapshot_id.startswith(_SNAPSHOT_PREFIX):
+            raise ValueError("Consumer snapshot identity is invalid.")
+        path = self.folder / f"{snapshot_id}.json"
+        try:
+            raw = path.read_bytes()
+            document = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("Consumer snapshot is unavailable or malformed.") from error
+        if not isinstance(document, Mapping):
+            raise ValueError("Consumer snapshot is unavailable or malformed.")
+        digest = snapshot_id.removeprefix(_SNAPSHOT_PREFIX)
+        if len(digest) != 64 or sha256(raw).hexdigest() != digest:
+            raise ValueError("Consumer snapshot immutable identity mismatch.")
+        if set(document) != {
+            "schema_version", "generated_at", "window_start", "window_end", "coverage_state", "categories",
+        }:
+            raise ValueError("Consumer snapshot schema is malformed.")
+        serialized = raw.decode("utf-8").casefold()
+        if any(marker in serialized for marker in _FORBIDDEN_MARKERS):
+            raise ValueError("Consumer snapshot contains prohibited private data.")
+        if document.get("schema_version") != CONSUMER_SNAPSHOT_SCHEMA_VERSION:
+            raise ValueError("Consumer snapshot schema version is unsupported.")
+        if document.get("coverage_state") != "DISCOVERY_COVERAGE_COMPLETE":
+            raise ValueError("Only complete consumer snapshots may be published.")
+        now = evaluation_time or datetime.now(UTC)
+        if now.tzinfo is None:
+            raise ValueError("Consumer snapshot evaluation time must be timezone-aware.")
+        categories = document.get("categories")
+        if not isinstance(categories, list):
+            raise ValueError("Consumer snapshot categories are malformed.")
         return ConsumerTrendRadarV1(
-            last_updated=source.last_updated,
-            coverage_state=coverage_state,
-            categories=(),
+            _required_text(document, "generated_at"),
+            "COMPLETE",
+            tuple(_parse_category(item, now.astimezone(UTC)) for item in categories),
         )
+
+
+def _required_text(value: Mapping[str, Any], key: str) -> str:
+    item = value.get(key)
+    if not isinstance(item, str) or not item:
+        raise ValueError("Consumer snapshot field is malformed.")
+    return item
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError("Consumer snapshot field is malformed.")
+    return value
+
+
+def _mapping(value: object) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("Consumer snapshot record is malformed.")
+    return value
+
+
+def _records(value: Mapping[str, Any], key: str) -> list[object]:
+    records = value.get(key)
+    if not isinstance(records, list):
+        raise ValueError("Consumer snapshot records are malformed.")
+    return records
+
+
+def _parse_category(value: object, now: datetime) -> ConsumerCategory:
+    record = _mapping(value)
+    return ConsumerCategory(
+        _required_text(record, "category_label"),
+        tuple(_parse_topic(item, now) for item in _records(record, "topics")),
+    )
+
+
+def _parse_topic(value: object, now: datetime) -> ConsumerTopic:
+    record = _mapping(value)
+    return ConsumerTopic(
+        _required_text(record, "topic_label"),
+        tuple(_parse_subtrend(item, now) for item in _records(record, "subtrends")),
+    )
+
+
+def _parse_subtrend(value: object, now: datetime) -> ConsumerSubtrend:
+    record = _mapping(value)
+    return ConsumerSubtrend(
+        _required_text(record, "subtrend_label"),
+        tuple(_parse_video(item) for item in _records(record, "videos")),
+        tuple(_parse_creator(item, now) for item in _records(record, "creators")),
+    )
+
+
+def _parse_video(value: object) -> ConsumerVideo:
+    record = _mapping(value)
+    views = record.get("public_views")
+    if not isinstance(views, int) or views < 0:
+        raise ValueError("Consumer video views are malformed.")
+    return ConsumerVideo(
+        _required_text(record, "display_title"), views,
+        _required_text(record, "published_at"), _optional_text(record.get("thumbnail_locator")),
+        _required_text(record, "public_video_locator"),
+    )
+
+
+def _parse_creator(value: object, now: datetime) -> ConsumerCreator:
+    record = _mapping(value)
+    expires_at = datetime.fromisoformat(_required_text(record, "identity_expires_at").replace("Z", "+00:00"))
+    if expires_at.tzinfo is None:
+        raise ValueError("Consumer creator identity expiry is malformed.")
+    if expires_at.astimezone(UTC) <= now:
+        return ConsumerCreator(display_name=None)
+    tracking_key = _required_text(record, "tracking_key")
+    if not tracking_key.startswith("creator-opportunity-handle-"):
+        raise ValueError("Consumer creator tracking key is malformed.")
+    return ConsumerCreator(
+        _optional_text(record.get("display_name")), _optional_text(record.get("public_handle")),
+        _optional_text(record.get("public_creator_locator")), tracking_key,
+    )
 
 
 def display_timestamp(value: str) -> str:

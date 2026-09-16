@@ -10,7 +10,7 @@ from dashboard.consumer_product_read_model import (
     ConsumerSubtrend,
     ConsumerTopic,
     ConsumerTrendRadarV1,
-    ConsumerTrendRadarV1Projector,
+    ConsumerTrendRadarV1SnapshotLoader,
     display_timestamp,
 )
 from dashboard.product_read_model import PublicProductReadModelLoader
@@ -19,6 +19,7 @@ from dashboard.product_read_model import PublicProductReadModelLoader
 SEP02_FREE_FACTUAL_V1_ARTIFACT_ID = "free-factual-v1-cad66614120dea9ddf92226975e1858632183ad740e1e6dee9f8fbf4a7baabb2"
 SEP02_SEMANTIC_TREND_PIPELINE_ARTIFACT_ID = "semantic-trend-pipeline-9973028686f8bc577f18595378efa198a69a1f783884e8678ef4e3d22208296a"
 SEP02_DEPLOYMENT_PRODUCT_PROJECTION_ARTIFACT_ID = "trend-radar-deployment-run-4671f23d51cd5db4f2c30e8236ade0d1e0600c2cb0b7a219cfba8f3cb99f8be0"
+CURRENT_CONSUMER_SNAPSHOT_ID = "consumer-trend-radar-candidate-4ee3b29e58ad729e1a8cd0b82a10a6d30a1d25da6a861fdc85d8d1dad808c57a"
 PRIVACY_POLICY_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/privacy.html"
 TERMS_OF_SERVICE_URL = "https://rohitgoku13-hue.github.io/trendradar-compliance/terms.html"
 COMPLIANCE_REVIEW_QUERY_VALUE = "youtube-api-review"
@@ -295,7 +296,9 @@ try:
         semantic_artifact_id=SEP02_SEMANTIC_TREND_PIPELINE_ARTIFACT_ID,
         projection_artifact_id=SEP02_DEPLOYMENT_PRODUCT_PROJECTION_ARTIFACT_ID,
     )
-    consumer_snapshot = ConsumerTrendRadarV1Projector().project(source)
+    consumer_snapshot = ConsumerTrendRadarV1SnapshotLoader().load(
+        snapshot_id=CURRENT_CONSUMER_SNAPSHOT_ID,
+    )
 except ValueError:
     st.error("Trend Radar could not load the selected update.")
     st.stop()

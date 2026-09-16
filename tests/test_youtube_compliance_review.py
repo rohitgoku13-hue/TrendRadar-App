@@ -147,12 +147,13 @@ def test_review_narrative_does_not_publish_numeric_decision_rules() -> None:
     assert re.search(r"\d|[%≥≤<>]", narrative) is None
 
 
-def test_normal_home_truth_remains_unchanged_and_contains_no_api_review_copy() -> None:
+def test_normal_home_uses_current_consumer_snapshot_without_api_review_copy() -> None:
     app = AppTest.from_file(str(APP_PATH)).run(timeout=20)
 
     assert not app.exception
     assert app.title[0].value == "Trend Radar"
-    assert "No verified topics are available yet" in app.info[0].value
+    assert "Explore categories" in tuple(item.value for item in app.header)
+    assert len(app.button) > 10
     body = _body(app)
     assert "search.list" not in body
     assert "Creator Patterns" not in body
